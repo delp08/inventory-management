@@ -114,6 +114,68 @@ class TestRestockingOrderEndpoints:
         response = client.post("/api/restocking-orders", json={"items": []})
         assert response.status_code == 422
 
+    def test_restock_order_rejects_already_ordered_sku(self, client):
+        """Test that a SKU on a submitted order cannot be ordered again."""
+        payload = {"budget": 10000, "items": [{"sku": "WDG-001", "quantity": 1}]}
+        assert client.post("/api/restocking-orders", json=payload).status_code == 201
+
+        response = client.post("/api/restocking-orders", json=payload)
+        assert response.status_code == 409
+        assert "WDG-001" in response.json()["detail"]
+        assert len(client.get("/api/restocking-orders").json()) == 1
+
+    def test_restock_order_rejects_duplicate_skus_in_request(self, client):
+        """Test that the same SKU twice in one request is rejected."""
+        response = client.post("/api/restocking-orders", json={
+            "budget": 10000,
+            "items": [{"sku": "WDG-001", "quantity": 1}, {"sku": "WDG-001", "quantity": 2}]
+        })
+        assert response.status_code == 400
+
+    def test_delete_restock_order(self, client):
+        """Test deleting an order removes it from the list."""
+        order = client.post("/api/restocking-orders", json={
+            "budget": 10000,
+            "items": [{"sku": "WDG-001", "quantity": 1}]
+        }).json()
+
+        response = client.delete(f"/api/restocking-orders/{order['id']}")
+        assert response.status_code == 200
+        assert response.json()["id"] == order["id"]
+        assert client.get("/api/restocking-orders").json() == []
+
+    def test_delete_restock_order_allows_reordering(self, client):
+        """Test that deleting an order frees its SKUs to be ordered again."""
+        payload = {"budget": 10000, "items": [{"sku": "WDG-001", "quantity": 1}]}
+        order = client.post("/api/restocking-orders", json=payload).json()
+        client.delete(f"/api/restocking-orders/{order['id']}")
+
+        response = client.post("/api/restocking-orders", json=payload)
+        assert response.status_code == 201
+
+    def test_delete_nonexistent_restock_order(self, client):
+        """Test deleting an order that doesn't exist returns 404."""
+        response = client.delete("/api/restocking-orders/RST-999")
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_restock_order_ids_not_reused_after_delete(self, client):
+        """Test that ids stay unique after deleting the newest order."""
+        first = client.post("/api/restocking-orders", json={
+            "budget": 10000, "items": [{"sku": "WDG-001", "quantity": 1}]
+        }).json()
+        second = client.post("/api/restocking-orders", json={
+            "budget": 10000, "items": [{"sku": "SNR-420", "quantity": 1}]
+        }).json()
+        client.delete(f"/api/restocking-orders/{second['id']}")
+        third = client.post("/api/restocking-orders", json={
+            "budget": 10000, "items": [{"sku": "SNR-420", "quantity": 1}]
+        }).json()
+
+        ids = {first["id"], second["id"], third["id"]}
+        assert len(ids) == 3
+        assert third["order_number"] != second["order_number"]
+
     def test_get_restock_orders_newest_first(self, client):
         """Test that submitted orders are listed newest first."""
         assert client.get("/api/restocking-orders").json() == []

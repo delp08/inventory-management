@@ -79,6 +79,8 @@
         <div class="card-header">
           <h3 class="card-title">{{ t('orders.submittedOrders') }} ({{ restockOrders.length }})</h3>
         </div>
+        <!-- Delete failures are shown inline without hiding the table -->
+        <div v-if="deleteError" class="error" role="alert">{{ deleteError }}</div>
         <div v-if="restockError" class="error">{{ restockError }}</div>
         <div v-else-if="restockOrders.length === 0" class="submitted-empty">
           {{ t('orders.noSubmittedOrders') }}
@@ -94,6 +96,7 @@
                 <th>{{ t('orders.table.leadTime') }}</th>
                 <th>{{ t('orders.table.expectedDelivery') }}</th>
                 <th>{{ t('orders.table.status') }}</th>
+                <th>{{ t('orders.table.actions') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -105,6 +108,16 @@
                 <td>{{ t('orders.table.days', { count: ro.lead_time_days }) }}</td>
                 <td>{{ formatDate(ro.expected_delivery) }}</td>
                 <td><span class="badge info">{{ ro.status }}</span></td>
+                <td>
+                  <button
+                    type="button"
+                    class="delete-btn"
+                    :disabled="deletingIds.has(ro.id)"
+                    @click="deleteRestockOrder(ro)"
+                  >
+                    {{ deletingIds.has(ro.id) ? t('orders.deleting') : t('orders.deleteOrder') }}
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -154,6 +167,36 @@ export default {
         restockOrders.value = []
         restockError.value = t('orders.submittedOrdersError')
         console.error('Restock orders load error:', err)
+      }
+    }
+
+    const deleteError = ref(null)
+    // Ids currently being deleted; replaced (not mutated) so the change is reactive
+    const deletingIds = ref(new Set())
+
+    const setDeleting = (id, on) => {
+      const next = new Set(deletingIds.value)
+      if (on) next.add(id)
+      else next.delete(id)
+      deletingIds.value = next
+    }
+
+    const deleteRestockOrder = async (order) => {
+      if (deletingIds.value.has(order.id)) return
+      if (!window.confirm(t('orders.deleteConfirm', { orderNumber: order.order_number }))) return
+      deleteError.value = null
+      setDeleting(order.id, true)
+      try {
+        await api.deleteRestockOrder(order.id)
+        await loadRestockOrders()
+      } catch (err) {
+        // Prefer the backend's explanation (e.g. 404 when already deleted)
+        deleteError.value = err.response?.data?.detail || t('orders.deleteFailed')
+        console.error('Restock order delete error:', err)
+        // A 404 means it's already gone; refresh so the stale row disappears
+        if (err.response?.status === 404) await loadRestockOrders()
+      } finally {
+        setDeleting(order.id, false)
       }
     }
 
@@ -215,6 +258,9 @@ export default {
       orders,
       restockOrders,
       restockError,
+      deleteError,
+      deletingIds,
+      deleteRestockOrder,
       getOrdersByStatus,
       getOrderStatusClass,
       formatDate,
@@ -229,6 +275,28 @@ export default {
 <style scoped>
 .submitted-orders {
   margin-top: 1.5rem;
+}
+
+.delete-btn {
+  background: transparent;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.813rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.delete-btn:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+.delete-btn:disabled {
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  cursor: not-allowed;
 }
 
 .submitted-empty {

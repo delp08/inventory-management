@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+import itertools
 from datetime import datetime, timedelta
 from typing import List, Optional
 from pydantic import BaseModel
@@ -27,6 +28,8 @@ DEFAULT_LEAD_TIME_DAYS = 7
 
 # Submitted restocking orders (in memory only, cleared on restart)
 restock_orders: list = []
+# Monotonic counter so deleting an order never causes an id or number to be reused
+restock_order_seq = itertools.count(1)
 
 def filter_by_month(items: list, month: Optional[str]) -> list:
     """Filter items by month/quarter based on order_date field"""
@@ -227,6 +230,19 @@ def create_restock_order(request: CreateRestockOrderRequest):
     if not request.items:
         raise HTTPException(status_code=400, detail="Order must contain at least one item")
 
+    skus = [item.sku for item in request.items]
+    if len(set(skus)) != len(skus):
+        raise HTTPException(status_code=400, detail="Order contains duplicate SKUs")
+
+    # An item that is already on a submitted order must be deleted from there before reordering
+    already_ordered = {line["sku"] for order in restock_orders for line in order["items"]}
+    duplicates = sorted(set(skus) & already_ordered)
+    if duplicates:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Already ordered: {', '.join(duplicates)}. Delete the existing order to reorder."
+        )
+
     forecasts_by_sku = {f["item_sku"]: f for f in demand_forecasts}
     lines = []
     for item in request.items:
@@ -253,7 +269,7 @@ def create_restock_order(request: CreateRestockOrderRequest):
     # The order arrives when its slowest item does
     lead_time_days = max(LEAD_TIME_DAYS.get(line["category"], DEFAULT_LEAD_TIME_DAYS) for line in lines)
     now = datetime.now()
-    number = len(restock_orders) + 1
+    number = next(restock_order_seq)
     order = {
         "id": f"RST-{number}",
         "order_number": f"RST-{now.year}-{number:04d}",
@@ -271,6 +287,15 @@ def create_restock_order(request: CreateRestockOrderRequest):
 def get_restock_orders():
     """Get submitted restocking orders, newest first"""
     return list(reversed(restock_orders))
+
+@app.delete("/api/restocking-orders/{order_id}")
+def delete_restock_order(order_id: str):
+    """Delete a submitted restocking order so its items can be reordered"""
+    for index, order in enumerate(restock_orders):
+        if order["id"] == order_id:
+            del restock_orders[index]
+            return {"id": order_id}
+    raise HTTPException(status_code=404, detail=f"Restocking order {order_id} not found")
 
 @app.get("/api/dashboard/summary")
 def get_dashboard_summary(

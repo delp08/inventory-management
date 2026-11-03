@@ -112,5 +112,10 @@ export const api = {
   async getRestockOrders() {
     const response = await axios.get(`${API_BASE_URL}/restocking-orders`)
     return response.data
+  },
+
+  async deleteRestockOrder(id) {
+    const response = await axios.delete(`${API_BASE_URL}/restocking-orders/${id}`)
+    return response.data
   }
 }
