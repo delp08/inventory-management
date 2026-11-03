@@ -6,6 +6,7 @@ export default {
     orders: 'Orders',
     finance: 'Finance',
     demandForecast: 'Demand Forecast',
+    restocking: 'Restocking',
     companyName: 'Catalyst Components',
     subtitle: 'Inventory Management System'
   },
@@ -112,7 +113,17 @@ export default {
     onTimeDelivery: 'On-Time Delivery',
     itemsCount: '{count} items',
     quantity: 'Qty',
+    submittedOrders: 'Submitted Orders',
+    noSubmittedOrders: 'No restocking orders have been submitted yet.',
+    submittedOrdersError: 'Submitted orders could not be loaded.',
+    deleteOrder: 'Delete',
+    deleting: 'Deleting...',
+    deleteConfirm: 'Delete restocking order {orderNumber}? Its items will become available to order again.',
+    deleteFailed: 'Failed to delete the order.',
     table: {
+      actions: 'Actions',
+      leadTime: 'Lead Time',
+      days: '{count} days',
       orderNumber: 'Order Number',
       orderId: 'Order ID',
       orderDate: 'Order Date',
@@ -185,6 +196,40 @@ export default {
       change: 'Change',
       trend: 'Trend',
       period: 'Period'
+    }
+  },
+
+  // Restocking
+  restocking: {
+    title: 'Restocking',
+    description: 'Plan purchase orders for forecasted shortfalls within a budget',
+    budget: 'Budget',
+    budgetSlider: 'Restocking budget',
+    plannedSpend: 'Planned Spend',
+    remainingBudget: 'Remaining Budget',
+    itemsToOrder: 'Items to Order',
+    recommendedItems: 'Recommended Items',
+    emptyState: 'No items fit within the current budget. Increase the budget to see recommendations.',
+    placeOrder: 'Place Order',
+    placing: 'Placing order...',
+    orderPlaced: 'Order placed',
+    orderSummary: 'Order {number}: total {total}, lead time {days} days.',
+    placeFailed: 'Failed to place order',
+    loadFailed: 'Failed to load restocking data: ',
+    allOrderedState: 'Every shortfall item has already been ordered. Delete a submitted order to make its items available again.',
+    ordered: 'Ordered',
+    pending: 'Pending',
+    table: {
+      status: 'Status',
+      sku: 'SKU',
+      item: 'Item',
+      category: 'Category',
+      trend: 'Trend',
+      onHand: 'On Hand',
+      forecast: 'Forecast',
+      orderQty: 'Order Qty',
+      unitCost: 'Unit Cost',
+      lineTotal: 'Line Total'
     }
   },
 

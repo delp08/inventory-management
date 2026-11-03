@@ -74,6 +74,55 @@
           </table>
         </div>
       </div>
+
+      <div class="card submitted-orders">
+        <div class="card-header">
+          <h3 class="card-title">{{ t('orders.submittedOrders') }} ({{ restockOrders.length }})</h3>
+        </div>
+        <!-- Delete failures are shown inline without hiding the table -->
+        <div v-if="deleteError" class="error" role="alert">{{ deleteError }}</div>
+        <div v-if="restockError" class="error">{{ restockError }}</div>
+        <div v-else-if="restockOrders.length === 0" class="submitted-empty">
+          {{ t('orders.noSubmittedOrders') }}
+        </div>
+        <div v-else class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>{{ t('orders.table.orderNumber') }}</th>
+                <th>{{ t('orders.table.orderDate') }}</th>
+                <th>{{ t('orders.table.items') }}</th>
+                <th>{{ t('orders.table.totalValue') }}</th>
+                <th>{{ t('orders.table.leadTime') }}</th>
+                <th>{{ t('orders.table.expectedDelivery') }}</th>
+                <th>{{ t('orders.table.status') }}</th>
+                <th>{{ t('orders.table.actions') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="ro in restockOrders" :key="ro.id">
+                <td><strong>{{ ro.order_number }}</strong></td>
+                <td>{{ formatDate(ro.order_date) }}</td>
+                <td>{{ ro.items.length }}</td>
+                <td><strong>{{ currencySymbol }}{{ ro.total_value.toLocaleString('en-US') }}</strong></td>
+                <td>{{ t('orders.table.days', { count: ro.lead_time_days }) }}</td>
+                <td>{{ formatDate(ro.expected_delivery) }}</td>
+                <td><span class="badge info">{{ ro.status }}</span></td>
+                <td>
+                  <button
+                    type="button"
+                    class="delete-btn"
+                    :disabled="deletingIds.has(ro.id)"
+                    @click="deleteRestockOrder(ro)"
+                  >
+                    {{ deletingIds.has(ro.id) ? t('orders.deleting') : t('orders.deleteOrder') }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -105,11 +154,58 @@ export default {
       getCurrentFilters
     } = useFilters()
 
+    // Submitted restocking orders are independent of the status/period filters
+    const restockOrders = ref([])
+    const restockError = ref(null)
+
+    // Failure here is isolated so it never breaks the main orders table
+    const loadRestockOrders = async () => {
+      try {
+        restockError.value = null
+        restockOrders.value = await api.getRestockOrders()
+      } catch (err) {
+        restockOrders.value = []
+        restockError.value = t('orders.submittedOrdersError')
+        console.error('Restock orders load error:', err)
+      }
+    }
+
+    const deleteError = ref(null)
+    // Ids currently being deleted; replaced (not mutated) so the change is reactive
+    const deletingIds = ref(new Set())
+
+    const setDeleting = (id, on) => {
+      const next = new Set(deletingIds.value)
+      if (on) next.add(id)
+      else next.delete(id)
+      deletingIds.value = next
+    }
+
+    const deleteRestockOrder = async (order) => {
+      if (deletingIds.value.has(order.id)) return
+      if (!window.confirm(t('orders.deleteConfirm', { orderNumber: order.order_number }))) return
+      deleteError.value = null
+      setDeleting(order.id, true)
+      try {
+        await api.deleteRestockOrder(order.id)
+        await loadRestockOrders()
+      } catch (err) {
+        // Prefer the backend's explanation (e.g. 404 when already deleted)
+        deleteError.value = err.response?.data?.detail || t('orders.deleteFailed')
+        console.error('Restock order delete error:', err)
+        // A 404 means it's already gone; refresh so the stale row disappears
+        if (err.response?.status === 404) await loadRestockOrders()
+      } finally {
+        setDeleting(order.id, false)
+      }
+    }
+
     const loadOrders = async () => {
       try {
         loading.value = true
         const filters = getCurrentFilters()
-        const fetchedOrders = await api.getOrders(filters)
+        // Restock orders load alongside orders; loadRestockOrders never rejects
+        const [fetchedOrders] = await Promise.all([api.getOrders(filters), loadRestockOrders()])
 
         // Sort orders by order_date (earliest first)
         orders.value = fetchedOrders.sort((a, b) => {
@@ -160,6 +256,11 @@ export default {
       loading,
       error,
       orders,
+      restockOrders,
+      restockError,
+      deleteError,
+      deletingIds,
+      deleteRestockOrder,
       getOrdersByStatus,
       getOrderStatusClass,
       formatDate,
@@ -172,6 +273,38 @@ export default {
 </script>
 
 <style scoped>
+.submitted-orders {
+  margin-top: 1.5rem;
+}
+
+.delete-btn {
+  background: transparent;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.813rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.delete-btn:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+.delete-btn:disabled {
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  cursor: not-allowed;
+}
+
+.submitted-empty {
+  padding: 2rem;
+  text-align: center;
+  color: #64748b;
+}
+
 /* Fixed table layout to prevent column shifting */
 .orders-table {
   table-layout: fixed;
