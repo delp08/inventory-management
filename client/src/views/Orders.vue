@@ -74,6 +74,42 @@
           </table>
         </div>
       </div>
+
+      <div class="card submitted-orders">
+        <div class="card-header">
+          <h3 class="card-title">{{ t('orders.submittedOrders') }} ({{ restockOrders.length }})</h3>
+        </div>
+        <div v-if="restockError" class="error">{{ restockError }}</div>
+        <div v-else-if="restockOrders.length === 0" class="submitted-empty">
+          {{ t('orders.noSubmittedOrders') }}
+        </div>
+        <div v-else class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>{{ t('orders.table.orderNumber') }}</th>
+                <th>{{ t('orders.table.orderDate') }}</th>
+                <th>{{ t('orders.table.items') }}</th>
+                <th>{{ t('orders.table.totalValue') }}</th>
+                <th>{{ t('orders.table.leadTime') }}</th>
+                <th>{{ t('orders.table.expectedDelivery') }}</th>
+                <th>{{ t('orders.table.status') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="ro in restockOrders" :key="ro.id">
+                <td><strong>{{ ro.order_number }}</strong></td>
+                <td>{{ formatDate(ro.order_date) }}</td>
+                <td>{{ ro.items.length }}</td>
+                <td><strong>{{ currencySymbol }}{{ ro.total_value.toLocaleString('en-US') }}</strong></td>
+                <td>{{ t('orders.table.days', { count: ro.lead_time_days }) }}</td>
+                <td>{{ formatDate(ro.expected_delivery) }}</td>
+                <td><span class="badge info">{{ ro.status }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -105,11 +141,28 @@ export default {
       getCurrentFilters
     } = useFilters()
 
+    // Submitted restocking orders are independent of the status/period filters
+    const restockOrders = ref([])
+    const restockError = ref(null)
+
+    // Failure here is isolated so it never breaks the main orders table
+    const loadRestockOrders = async () => {
+      try {
+        restockError.value = null
+        restockOrders.value = await api.getRestockOrders()
+      } catch (err) {
+        restockOrders.value = []
+        restockError.value = t('orders.submittedOrdersError')
+        console.error('Restock orders load error:', err)
+      }
+    }
+
     const loadOrders = async () => {
       try {
         loading.value = true
         const filters = getCurrentFilters()
-        const fetchedOrders = await api.getOrders(filters)
+        // Restock orders load alongside orders; loadRestockOrders never rejects
+        const [fetchedOrders] = await Promise.all([api.getOrders(filters), loadRestockOrders()])
 
         // Sort orders by order_date (earliest first)
         orders.value = fetchedOrders.sort((a, b) => {
@@ -160,6 +213,8 @@ export default {
       loading,
       error,
       orders,
+      restockOrders,
+      restockError,
       getOrdersByStatus,
       getOrderStatusClass,
       formatDate,
@@ -172,6 +227,16 @@ export default {
 </script>
 
 <style scoped>
+.submitted-orders {
+  margin-top: 1.5rem;
+}
+
+.submitted-empty {
+  padding: 2rem;
+  text-align: center;
+  color: #64748b;
+}
+
 /* Fixed table layout to prevent column shifting */
 .orders-table {
   table-layout: fixed;
